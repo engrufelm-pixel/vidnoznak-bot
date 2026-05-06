@@ -3,6 +3,7 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InputMediaPhoto, FSInputFile
 from aiogram.filters import CommandStart, Command
 from aiogram.fsm.context import FSMContext
+from sheets import add_row
 
 from config import ADMIN_GROUP_ID, ADMIN_IDS
 from states import Client, Admin
@@ -157,7 +158,9 @@ async def admin_write(callback: CallbackQuery, state: FSMContext):
     uid = int(callback.data.split("_")[1])
     await state.update_data(target_uid=uid)
     await state.set_state(Admin.write_msg)
-    await callback.message.answer(f"✏️ Введите сообщение для клиента {uid}:\n/cancel — отмена")
+    await callback.message.answer(
+        f"✏️ Введите сообщение для клиента {uid}:\n/cancel — отмена"
+    )
     await callback.answer()
 
 
@@ -245,7 +248,9 @@ async def cmd_start(message: Message, state: FSMContext):
 
 @router.message(Client.phone, F.contact)
 async def got_phone(message: Message, state: FSMContext):
-    await save_user(message.from_user.id, message.from_user.username, message.contact.phone_number)
+    phone = message.contact.phone_number
+    await save_user(message.from_user.id, message.from_user.username, phone)
+    await state.update_data(phone=phone)
     await go_main(message, state)
 
 
@@ -255,7 +260,7 @@ async def got_phone(message: Message, state: FSMContext):
 
 @router.message(Client.marketplace, F.text == "🟣 Wildberries")
 async def mp_wb(message: Message, state: FSMContext):
-    await state.update_data(mp="wildberries")
+    await state.update_data(mp="Wildberries")
     await state.set_state(Client.wb_order)
     await message.answer(
         "📝 Укажите номер сборочного задания (если знаете)\n"
@@ -284,7 +289,10 @@ async def wb_instruction(message: Message):
 async def wb_got(message: Message, state: FSMContext):
     await state.update_data(order=message.text)
     await state.set_state(Client.custom_data)
-    await message.answer("📎 Приложите данные для нанесения (фото/файл/текст):", reply_markup=back_kb())
+    await message.answer(
+        "📎 Приложите данные для нанесения (фото/файл/текст):",
+        reply_markup=back_kb()
+    )
 
 
 # ============================================================
@@ -293,7 +301,7 @@ async def wb_got(message: Message, state: FSMContext):
 
 @router.message(Client.marketplace, F.text == "🔵 Ozon")
 async def mp_ozon(message: Message, state: FSMContext):
-    await state.update_data(mp="ozon")
+    await state.update_data(mp="Ozon")
     await state.set_state(Client.ozon_order)
     await message.answer("📝 Укажите номер заказа:", reply_markup=back_kb())
 
@@ -302,11 +310,14 @@ async def mp_ozon(message: Message, state: FSMContext):
 async def ozon_got(message: Message, state: FSMContext):
     await state.update_data(order=message.text)
     await state.set_state(Client.custom_data)
-    await message.answer("📎 Приложите данные для нанесения (фото/файл/текст):", reply_markup=back_kb())
+    await message.answer(
+        "📎 Приложите данные для нанесения (фото/файл/текст):",
+        reply_markup=back_kb()
+    )
 
 
 # ============================================================
-#    ДАННЫЕ → МЕНЕДЖЕРУ
+#    ДАННЫЕ → МЕНЕДЖЕРУ + ТАБЛИЦА
 # ============================================================
 
 @router.message(Client.custom_data)
@@ -314,8 +325,20 @@ async def got_data(message: Message, state: FSMContext):
     data = await state.get_data()
     order = data.get("order", "—")
     mp = data.get("mp", "—")
+    phone = data.get("phone", "—")
+    data_text = message.text or "файл/фото"
 
-    await save_request(message.from_user.id, order, message.text or "файл/фото")
+    await save_request(message.from_user.id, order, data_text)
+
+    add_row(
+        phone,
+        message.from_user.username,
+        message.from_user.id,
+        mp,
+        order,
+        data_text,
+        "Заявка"
+    )
 
     header = (
         f"📩 Новая заявка\n"
@@ -327,7 +350,10 @@ async def got_data(message: Message, state: FSMContext):
         f"━━━━━━━━━━━━━━━"
     )
     await send_to_group(message.bot, message.from_user, header, message)
-    await message.answer("✅ Информация передана менеджеру.\nОжидайте ответ.", reply_markup=main_menu())
+    await message.answer(
+        "✅ Информация передана менеджеру.\nОжидайте ответ.",
+        reply_markup=main_menu()
+    )
     await state.set_state(Client.marketplace)
 
 
@@ -342,18 +368,29 @@ async def other_q(message: Message, state: FSMContext):
 
 
 # ============================================================
-#    ОПЕРАТОР — ЖИВОЙ ЧАТ
+#    ОПЕРАТОР — ЖИВОЙ ЧАТ + ТАБЛИЦА
 # ============================================================
 
 @router.message(F.text.contains("оператор"), F.chat.type == "private")
 async def call_op(message: Message, state: FSMContext):
+    data = await state.get_data()
+    phone = data.get("phone", "—")
+
+    add_row(
+        phone,
+        message.from_user.username,
+        message.from_user.id,
+        "—", "—", "—",
+        "Вызов оператора"
+    )
+
     header = (
         f"🔔 Вызов оператора!\n"
         f"━━━━━━━━━━━━━━━\n"
         f"👤 @{message.from_user.username or 'без ника'}\n"
         f"🆔 {message.from_user.id}\n"
         f"━━━━━━━━━━━━━━━\n"
-        f"💬 Клиент ждёт ответа. Для ответа — Reply на это сообщение."
+        f"💬 Клиент ждёт ответа. Reply на это сообщение."
     )
     await send_to_group(message.bot, message.from_user, header)
 
@@ -373,20 +410,15 @@ async def call_op(message: Message, state: FSMContext):
 
 @router.message(Client.live_chat, F.chat.type == "private")
 async def live_chat_msg(message: Message):
-    tag = f"💬 Сообщение от @{message.from_user.username or 'без ника'} | 🆔 {message.from_user.id}"
+    tag = (
+        f"💬 Сообщение от @{message.from_user.username or 'без ника'} "
+        f"| 🆔 {message.from_user.id}"
+    )
 
     if message.photo:
-        await message.bot.send_photo(
-            ADMIN_GROUP_ID,
-            message.photo[-1].file_id,
-            caption=tag
-        )
+        await message.bot.send_photo(ADMIN_GROUP_ID, message.photo[-1].file_id, caption=tag)
     elif message.document:
-        await message.bot.send_document(
-            ADMIN_GROUP_ID,
-            message.document.file_id,
-            caption=tag
-        )
+        await message.bot.send_document(ADMIN_GROUP_ID, message.document.file_id, caption=tag)
     elif message.text:
         await message.bot.send_message(ADMIN_GROUP_ID, f"{tag}\n\n{message.text}")
 
@@ -394,17 +426,32 @@ async def live_chat_msg(message: Message):
 
 
 # ============================================================
-#    БРАК
+#    БРАК + ТАБЛИЦА
 # ============================================================
 
 @router.message(F.text == "⚠️ Брак, чужая табличка", F.chat.type == "private")
 async def defect(message: Message, state: FSMContext):
     await state.set_state(Client.defect)
-    await message.answer("😔 Опишите ситуацию подробнее. Приложите фото:", reply_markup=back_kb())
+    await message.answer(
+        "😔 Опишите ситуацию подробнее. Приложите фото:",
+        reply_markup=back_kb()
+    )
 
 
 @router.message(Client.defect)
 async def defect_got(message: Message, state: FSMContext):
+    data = await state.get_data()
+    phone = data.get("phone", "—")
+
+    add_row(
+        phone,
+        message.from_user.username,
+        message.from_user.id,
+        "—", "—",
+        message.text or "фото/файл",
+        "Брак"
+    )
+
     header = (
         f"⚠️ Брак / чужая табличка\n"
         f"━━━━━━━━━━━━━━━\n"
@@ -414,7 +461,6 @@ async def defect_got(message: Message, state: FSMContext):
     )
     await send_to_group(message.bot, message.from_user, header, message)
 
-    # после брака — сразу живой чат с оператором
     await state.set_state(Client.live_chat)
     await message.answer(
         "✅ Передано менеджеру.\n\n"
@@ -502,6 +548,18 @@ async def ozon_no(message: Message, state: FSMContext):
 
 @router.message(Client.ozon_code)
 async def ozon_got_code(message: Message, state: FSMContext):
+    data = await state.get_data()
+    phone = data.get("phone", "—")
+
+    add_row(
+        phone,
+        message.from_user.username,
+        message.from_user.id,
+        "Ozon", "Повторная отправка",
+        message.text or "файл",
+        "Ozon повтор"
+    )
+
     header = (
         f"📦 Ozon повторная отправка\n"
         f"━━━━━━━━━━━━━━━\n"
