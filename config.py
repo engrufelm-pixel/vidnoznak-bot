@@ -1,6 +1,4 @@
-import os
-
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
-ADMIN_GROUP_ID = int(os.environ.get("ADMIN_GROUP_ID"))
-ADMIN_IDS = list(map(int, os.environ.get("ADMIN_IDS", "").split(",")))
-SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID")
+BOT_TOKEN = "8761486181:AAGIBqnKpBT1mupjWOhfEmkz3CSf4t3Ae8c"
+ADMIN_GROUP_ID = -5120863105
+ADMIN_IDS = [7345377752, 520711354]
+SPREADSHEET_ID = "1aYTn9AkeXDij-6ZpTWWyegze6Z6W6dd626ViBJag2hs"

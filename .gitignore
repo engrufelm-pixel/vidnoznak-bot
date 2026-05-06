@@ -1,7 +1,6 @@
 __pycache__/
 *.py[cod]
 *.db
-config.py
 credentials.json
 .env
 .venv/
