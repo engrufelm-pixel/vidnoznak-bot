@@ -47,6 +47,16 @@ def back_kb():
     )
 
 
+def custom_data_kb():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="✅ Я закончил")],
+            [KeyboardButton(text="⬅️ Назад")],
+        ],
+        resize_keyboard=True
+    )
+
+
 def other_menu():
     return ReplyKeyboardMarkup(
         keyboard=[

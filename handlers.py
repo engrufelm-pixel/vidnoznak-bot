@@ -287,11 +287,13 @@ async def wb_instruction(message: Message):
 
 @router.message(Client.wb_order)
 async def wb_got(message: Message, state: FSMContext):
-    await state.update_data(order=message.text)
+    await state.update_data(order=message.text, files=[])
     await state.set_state(Client.custom_data)
     await message.answer(
-        "📎 Приложите данные для нанесения (фото/файл/текст):",
-        reply_markup=back_kb()
+        "📎 Приложите данные для нанесения.\n"
+        "Можно отправлять несколько файлов и текст.\n\n"
+        "Когда закончите — нажмите «✅ Я закончил».",
+        reply_markup=custom_data_kb()
     )
 
 
@@ -308,27 +310,54 @@ async def mp_ozon(message: Message, state: FSMContext):
 
 @router.message(Client.ozon_order)
 async def ozon_got(message: Message, state: FSMContext):
-    await state.update_data(order=message.text)
+    await state.update_data(order=message.text, files=[])
     await state.set_state(Client.custom_data)
     await message.answer(
-        "📎 Приложите данные для нанесения (фото/файл/текст):",
-        reply_markup=back_kb()
+        "📎 Приложите данные для нанесения.\n"
+        "Можно отправлять несколько файлов и текст.\n\n"
+        "Когда закончите — нажмите «✅ Я закончил».",
+        reply_markup=custom_data_kb()
     )
 
 
 # ============================================================
-#    ДАННЫЕ → МЕНЕДЖЕРУ + ТАБЛИЦА
+#    СБОР ДАННЫХ (можно отправлять несколько файлов)
 # ============================================================
 
-@router.message(Client.custom_data)
-async def got_data(message: Message, state: FSMContext):
+@router.message(Client.custom_data, F.text != "✅ Я закончил", F.text != "⬅️ Назад")
+async def collect_data(message: Message, state: FSMContext):
+    data = await state.get_data()
+    files = data.get("files", [])
+
+    if message.photo:
+        files.append({"type": "photo", "file_id": message.photo[-1].file_id})
+    elif message.document:
+        files.append({"type": "document", "file_id": message.document.file_id})
+    elif message.text:
+        files.append({"type": "text", "content": message.text})
+
+    await state.update_data(files=files)
+
+    await message.answer(
+        "✅ Добавлено.\n"
+        "Можно отправить ещё файл или текст.\n"
+        "Когда закончите — нажмите «✅ Я закончил»."
+    )
+
+
+# ============================================================
+#    ЗАВЕРШЕНИЕ ЗАЯВКИ
+# ============================================================
+
+@router.message(Client.custom_data, F.text == "✅ Я закончил")
+async def finish_data(message: Message, state: FSMContext):
     data = await state.get_data()
     order = data.get("order", "—")
     mp = data.get("mp", "—")
     phone = data.get("phone", "—")
-    data_text = message.text or "файл/фото"
+    files = data.get("files", [])
 
-    await save_request(message.from_user.id, order, data_text)
+    await save_request(message.from_user.id, order, "несколько вложений")
 
     add_row(
         phone,
@@ -336,7 +365,7 @@ async def got_data(message: Message, state: FSMContext):
         message.from_user.id,
         mp,
         order,
-        data_text,
+        "несколько вложений",
         "Заявка"
     )
 
@@ -349,11 +378,33 @@ async def got_data(message: Message, state: FSMContext):
         f"📦 Заказ: {order}\n"
         f"━━━━━━━━━━━━━━━"
     )
-    await send_to_group(message.bot, message.from_user, header, message)
+
+    await message.bot.send_message(ADMIN_GROUP_ID, header)
+
+    for item in files:
+        if item["type"] == "photo":
+            await message.bot.send_photo(
+                ADMIN_GROUP_ID,
+                item["file_id"],
+                caption=f"📎 🆔 {message.from_user.id}"
+            )
+        elif item["type"] == "document":
+            await message.bot.send_document(
+                ADMIN_GROUP_ID,
+                item["file_id"],
+                caption=f"📎 🆔 {message.from_user.id}"
+            )
+        elif item["type"] == "text":
+            await message.bot.send_message(
+                ADMIN_GROUP_ID,
+                f"📎 🆔 {message.from_user.id}\n\n{item['content']}"
+            )
+
     await message.answer(
         "✅ Информация передана менеджеру.\nОжидайте ответ.",
         reply_markup=main_menu()
     )
+
     await state.set_state(Client.marketplace)
 
 
